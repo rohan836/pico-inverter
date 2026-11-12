@@ -6,3 +6,6 @@ build-*/
 *.bin
 *.hex
 *.map
+
+__pycache__/
+*.pyc

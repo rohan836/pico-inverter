@@ -34,6 +34,7 @@ static uint64_t next_render_us;
 
 static bool pwm_off_held;
 static uint64_t pwm_off_press_us;
+static uint64_t pwm_off_last_us;
 
 /* Free-running frame counter for the dashboard's PWM meter animation. */
 static uint16_t dashboard_phase;
@@ -229,10 +230,11 @@ void ui_handle_ir(const ir_event_t *event)
     }
 
     if (function == IR_FUNC_PWM_OFF) {
-        if (!pwm_off_held) {
+        if (!pwm_off_held || event->time_us - pwm_off_last_us > 300000u) {
             pwm_off_held = true;
             pwm_off_press_us = event->time_us;
         }
+        pwm_off_last_us = event->time_us;
         waveform_off();
         dirty = true;
         if (save_pending) {
@@ -240,7 +242,7 @@ void ui_handle_ir(const ir_event_t *event)
         }
 
         if (event->repeat && (event->time_us - pwm_off_press_us) > 3000000u) {
-            enter_setup(false);
+            enter_setup(true);
         }
         return;
     }
@@ -250,6 +252,7 @@ void ui_handle_ir(const ir_event_t *event)
     switch (function) {
     case IR_FUNC_FREQ_UP:
         if (config->freq_hz < PWM_MAX_HZ) {
+            waveform_off();
             config->freq_hz++;
             waveform_set_frequency(config->freq_hz);
             dirty = true;
@@ -259,6 +262,7 @@ void ui_handle_ir(const ir_event_t *event)
 
     case IR_FUNC_FREQ_DOWN:
         if (config->freq_hz > PWM_MIN_HZ) {
+            waveform_off();
             config->freq_hz--;
             waveform_set_frequency(config->freq_hz);
             dirty = true;
@@ -269,6 +273,7 @@ void ui_handle_ir(const ir_event_t *event)
 #if !PWM_HW_SQUARE
     case IR_FUNC_DUTY_UP:
         if (config->duty_pct < PWM_MAX_DUTY) {
+            waveform_off();
             config->duty_pct++;
             waveform_set_duty(config->duty_pct);
             dirty = true;
@@ -278,6 +283,7 @@ void ui_handle_ir(const ir_event_t *event)
 
     case IR_FUNC_DUTY_DOWN:
         if (config->duty_pct > PWM_MIN_DUTY) {
+            waveform_off();
             config->duty_pct--;
             waveform_set_duty(config->duty_pct);
             dirty = true;
@@ -297,10 +303,7 @@ void ui_task(void)
 
     if (mode == UI_MODE_SPLASH && now >= mode_until_us) {
         if (force_setup) {
-            mode = UI_MODE_SETUP;
-            setup_index = 0;
-            setup_show_ok = false;
-            setup_error = false;
+            enter_setup(true);
         } else {
             mode = UI_MODE_MAIN;
         }
@@ -326,14 +329,16 @@ void ui_task(void)
     }
 
     if (save_pending && !waveform_is_on() && now >= save_due_us) {
-        config_save(config);
-        save_pending = false;
+        if (config_save(config)) {
+            save_pending = false;
+        } else {
+            save_due_us = now + 1000000u;
+        }
     }
 
     if (dirty || now >= next_render_us) {
         render();
         dirty = false;
-        /* Fast tick for the animated status bar while the output is on. */
-        next_render_us = now + (waveform_is_on() ? 100000u : 500000u);
+        next_render_us = now + 500000u;
     }
 }

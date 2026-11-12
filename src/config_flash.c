@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "board.h"
+#include "waveform.h"
 #include "hardware/flash.h"
 #include "hardware/regs/addressmap.h"
 #include "hardware/sync.h"
@@ -13,6 +14,8 @@
 /* Bump whenever the layout or the meaning of stored fields changes.  A version
  * mismatch falls back to defaults, which also triggers the IR setup wizard. */
 #define CONFIG_VERSION     2u
+
+_Static_assert(sizeof(inverter_config_t) <= FLASH_PAGE_SIZE, "Config exceeds flash page");
 
 #define CONFIG_SLOT_SIZE   FLASH_SECTOR_SIZE
 #define CONFIG_SLOT0       (PICO_FLASH_SIZE_BYTES - (2u * CONFIG_SLOT_SIZE))
@@ -43,6 +46,11 @@ static bool config_valid(const inverter_config_t *cfg)
     if (cfg->size != sizeof(inverter_config_t)) {
         return false;
     }
+    if (cfg->freq_hz < PWM_MIN_HZ || cfg->freq_hz > PWM_MAX_HZ ||
+        cfg->duty_pct < PWM_MIN_DUTY || cfg->duty_pct > PWM_MAX_DUTY ||
+        cfg->configured > 1) {
+        return false;
+    }
     return cfg->crc == crc32_calc(cfg, offsetof(inverter_config_t, crc));
 }
 
@@ -62,6 +70,7 @@ void config_load_defaults(inverter_config_t *cfg)
     cfg->duty_pct = PWM_DEFAULT_DUTY;
     cfg->dead_us = PWM_DEAD_TIME_US;
     cfg->configured = 0;
+    cfg->reserved0 = CONFIG_TIMING_PROFILE;
 }
 
 bool config_load(inverter_config_t *cfg)
@@ -86,6 +95,7 @@ bool config_load(inverter_config_t *cfg)
 
 bool config_save(inverter_config_t *cfg)
 {
+    if (waveform_is_on()) return false;
     inverter_config_t next = *cfg;
     const inverter_config_t *a = slot_ptr(CONFIG_SLOT0);
     const inverter_config_t *b = slot_ptr(CONFIG_SLOT1);

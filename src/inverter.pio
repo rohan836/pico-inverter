@@ -1,0 +1,23 @@
+.program inverter
+; One instruction per microsecond. Registers persist between cycles.
+pull block
+mov isr, osr
+pull block
+.wrap_target
+mov x, isr
+set pins, 1
+on_a:
+jmp x-- on_a
+set pins, 0
+mov x, osr
+off_a:
+jmp x-- off_a
+mov x, isr
+set pins, 2
+on_b:
+jmp x-- on_b
+set pins, 0
+mov x, osr
+off_b:
+jmp x-- off_b
+.wrap

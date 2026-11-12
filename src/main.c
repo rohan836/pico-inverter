@@ -17,12 +17,16 @@
 #define GEN_MARKER "hw-pwm-exact-50"
 #elif PWM_TEST_SQUARE
 #define GEN_MARKER "timer-0us-dead"
+#elif PWM_SOFT_START
+#define GEN_MARKER "timer-soft-start"
 #else
-#define GEN_MARKER "timer-200us-dead"
+#define GEN_MARKER "pio-200us-dead"
 #endif
 
 int main(void)
 {
+    waveform_init();
+    waveform_off();
     stdio_init_all();
 
     /* Setup-force jumper: fit GP14 to GND before power-up to re-run IR setup. */
@@ -47,13 +51,22 @@ int main(void)
     }
 
     ir_nec_init();
-    waveform_init();
-    waveform_off();
 
     inverter_config_t config;
     bool stored = config_load(&config);
     if (!stored) {
         config_load_defaults(&config);
+    }
+
+    /* Apply this release's 50 Hz / 33% preset once, preserving learned keys.
+     * Subsequent boots retain user adjustments. Output is OFF during the save. */
+    if (stored && config.reserved0 != CONFIG_TIMING_PROFILE) {
+        config.freq_hz = PWM_DEFAULT_HZ;
+        config.duty_pct = PWM_DEFAULT_DUTY;
+        config.reserved0 = CONFIG_TIMING_PROFILE;
+        if (!config_save(&config)) {
+            printf("Timing preset save failed; will retry on next boot\n");
+        }
     }
 
     waveform_set_frequency(config.freq_hz);

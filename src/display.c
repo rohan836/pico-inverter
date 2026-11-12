@@ -15,7 +15,7 @@ static bool write_bytes(const uint8_t *data, size_t len)
     if (!display_available) {
         return false;
     }
-    return i2c_write_blocking(display_i2c, display_addr, data, len, false) == (int)len;
+    return i2c_write_timeout_us(display_i2c, display_addr, data, len, false, 20000) == (int)len;
 }
 
 static bool write_commands(const uint8_t *commands, size_t count)

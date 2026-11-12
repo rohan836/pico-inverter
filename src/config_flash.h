@@ -5,6 +5,8 @@
 #include <stdint.h>
 
 #define IR_FUNC_COUNT 7
+/* One-time startup timing preset; keeps the existing remote mapping. */
+#define CONFIG_TIMING_PROFILE 1u
 
 typedef enum {
     IR_FUNC_FREQ_UP = 0,

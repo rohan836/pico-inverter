@@ -147,10 +147,15 @@ Net summary, channel A (same for B with GP7 and PC123-B):
 | BD140 collector | GND_ISO |
 | BD139 emitter + BD140 emitter | gate bus |
 
-**Why this is fail-safe:** GPIO low or Pico reset -> LED off -> PC123 off ->
-4.7 k pulls node X low -> BD140 (PNP) conducts -> gate bus low. A missing or
-open optocoupler also leaves the gate bus low. A shorted optocoupler is the one
-fault this circuit cannot tolerate; fit a fuse and a physical kill switch.
+**Intended OFF behavior:** with the optocoupler off, the 4.7k resistor
+pulls the base node low. This is not a fault-tolerant gate driver and does not
+guarantee turn-off speed. The PNP base-discharge path includes the 470R and
+4.7k resistors; five parallel gates add charge. Measure gate-to-source voltage
+at each bank under load and confirm both banks turn off before the other turns
+on. GPIO dead time alone does not prove MOSFET dead time.
+
+GND_ISO must connect to GND_PWR so each driver has a source reference.
+Keep GND_LOGIC separate only when its supply is actually isolated.
 
 BD139/BD140 pinout (front, flat side toward you, legs down): **C B E** is not
 universal; check the datasheet or measure. A common TO-126 pinout is
@@ -165,15 +170,18 @@ PC123 pinout: **1 anode, 2 cathode, 3 emitter, 4 collector**.
 Five IRF540s in parallel per side. Repeat the gate network for every FET; do
 not use one gate resistor for all five.
 
+```text
+Driver gate bus -- 10R --+-- MOSFET gate
+                        +-- 10k -- MOSFET source
+                        +-- zener cathode
+                            zener anode -- MOSFET source
+MOSFET drain  -- side A or B drain bus (transformer outer end)
+MOSFET source -- power ground (or through the optional ballast resistor)
 ```
-  gate bus ---- 10R ---- gate ----+---- G  +----------+  D ----+---- drain bus
-                                  |        | IRF540   |        |
-                                 10k       |    x5    |        |
-                                  |        |          |        |
-                                15V zener  +---- S ---+--------+---- source bus
-                                  |             (GND_PWR)
-                                source
-```
+
+The resistor and zener are separate parallel gate-to-source branches.
+Do not connect the drain bus directly to the source bus.
+
 
 Per MOSFET:
 
@@ -280,8 +288,7 @@ negative star point.
 ## 8. Safety
 
 - The secondary side can be at mains potential. Do not touch it while powered.
-- Do not connect an earth-referenced oscilloscope to the mains output. Use a
-  differential probe or an isolation transformer.
+- Do not connect an earth-referenced oscilloscope to the mains output. Use a suitably rated differential probe. Never lift the oscilloscope protective earth.
 - Test the logic and gate-drive stages with the transformer disconnected and a
   current-limited 12 V supply first.
 - Fit a fuse, a physical kill switch, and a bleeder resistor.

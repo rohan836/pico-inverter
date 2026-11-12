@@ -10,8 +10,6 @@
 
 /* Keep the first alarm target safely in the future. */
 #define START_DELAY_US      100u
-/* Re-arm delay, used only if a deadline has already passed. */
-#define RECOVER_DELAY_US      5u
 
 enum {
     STATE_A_ON = 0,
@@ -162,15 +160,12 @@ static void __not_in_flash_func(alarm_cb)(unsigned int alarm)
         break;
     }
 
-    /*
-     * hardware_alarm_set_target() will not arm an alarm whose target is
-     * already in the past; it just reports "missed" and leaves it disarmed.
-     * Re-arm a few microseconds ahead instead of forcing an output pulse
-     * (which would appear as a step/glitch on the scope).
-     */
+    /* Stop the output if the next deadline has already passed. */
     if (hardware_alarm_set_target(alarm, from_us_since_boot(next_edge_us))) {
-        next_edge_us = time_us_64() + RECOVER_DELAY_US;
-        hardware_alarm_set_target(alarm, from_us_since_boot(next_edge_us));
+        /* A missed deadline can leave a channel high. Stop rather than
+         * risk an extended pulse or a shortened inter-channel gap. */
+        running = false;
+        set_outputs(false, false);
     }
 }
 
@@ -194,7 +189,7 @@ void waveform_init(void)
     hardware_alarm_set_callback((uint)alarm_num, alarm_cb);
 
     /* The waveform ISR must not be delayed by the IR receiver ISR. */
-    irq_set_priority(TIMER_IRQ_0, 0x00);
+    irq_set_priority(TIMER_IRQ_0 + (uint)alarm_num, 0x00);
 }
 
 void waveform_on(void)
@@ -313,7 +308,7 @@ uint32_t waveform_get_period_us(void)
     if (f < PWM_MIN_HZ) {
         f = PWM_MIN_HZ;
     }
-    return 1000000u / f;
+    return 2u * (1000000u / (2u * f));
 }
 
 uint32_t waveform_get_on_us(void)

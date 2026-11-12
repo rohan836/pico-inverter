@@ -33,7 +33,7 @@
 #define PWM_MIN_HZ         1
 #define PWM_MAX_HZ         60
 #define PWM_DEFAULT_HZ     50
-#define PWM_DEFAULT_DUTY   25
+#define PWM_DEFAULT_DUTY   33
 #define PWM_MIN_DUTY       1
 /*
  * 1..100 range for the remote.  The symmetric both-gaps-equal layout needs
@@ -50,7 +50,7 @@
 /*
  * Output generator selection.
  *
- * Default (0): timer generator.  Side A on for `on` microseconds, both off
+ * Default (0): PIO generator.  Side A on for `on` microseconds, both off
  * for `half - on`, then Side B for the same `on`, both off.  The duty setting
  * is the per-channel duty cycle over the full period, so the OLED percentage
  * is what the scope shows on each channel (saturates just below 50 % with LIM).
@@ -97,7 +97,7 @@
 /*
  * Transformer volt-second guard.  A normal 50/60 Hz transformer cannot accept
  * a 500 ms half-cycle at 1 Hz.  This caps the maximum ON pulse to 10 ms, which
- * is safe for a 50 Hz transformer and has no effect at 50/60 Hz.  Set to 0 to
+ * limits commanded volt-seconds but does not certify transformer safety.  Set to 0 to
  * disable only if your transformer is rated for the lower frequency.
  */
 #define PWM_MAX_ON_US      10000u

@@ -19,7 +19,7 @@ remote-control buttons on first boot.
 - IR remote learn/setup wizard stored in flash.
 - 7 assignable buttons: FRQ+, FRQ-, DUTY+, DUTY-, PWM ON, PWM OFF, RESET ALL.
 - SH1106 OLED by default; SSD1306 build option.
-- Minimalist landscape dashboard with 3x bold FRQ/DUTY zones and an animated full-width PWM status bar; no on-screen telemetry.
+- Bordered dashboard with bold frequency and duty values, explicit PWM status and a limit indicator.
 - 1 second watchdog: a hung Pico resets and turns both sides off.
 
 ## Important timing rule
@@ -39,7 +39,7 @@ At 50 Hz:
 | 5 % | 1.0 ms | 9.0 ms | 5 % |
 | 25 % | 5.0 ms | 5.0 ms | 25 % |
 | 49 % | 9.8 ms | 200 us | 49 % |
-| 50 % | 9.8 ms | 200 us | 49.5 % (LIM) |
+| 50 % | 9.8 ms | 200 us | 49 % (LIM) |
 
 At 60 Hz the duty saturates the same way at 48.8 % (8133 us on, 200 us gap).
 `LIM` is shown whenever the dead-time or volt-second clamp is active.
@@ -64,8 +64,8 @@ That variant produces `8333 us` on GP6, `8333 us` on GP7, exactly 50 %, at
 A normal 50/60 Hz transformer cannot accept a 500 ms half-cycle at 1 Hz. The
 firmware caps the ON pulse at `PWM_MAX_ON_US` (10 ms in `src/board.h`). At
 50/60 Hz this has no effect. At lower frequencies the display shows `LIM` and
-the actual pulse is shorter than the requested duty. This protects the
-transformer and MOSFETs. Change `PWM_MAX_ON_US` only if your transformer is
+the actual pulse is shorter than the requested duty. This limits commanded pulse duration; it does not guarantee protection of the
+transformer or MOSFETs. Change `PWM_MAX_ON_US` only if your transformer is
 genuinely rated for the lower frequency.
 
 ## Pin map
@@ -113,7 +113,7 @@ PC123 pin 2 (LED cathode) -- GND
 
 +12V_ISO -- PC123 pin 4 (collector)
 PC123 pin 3 (emitter) -- node X
-node X -- 4.7k -- GND
+node X -- 4.7k -- GND_ISO
 node X -- 470R -- common base of BD139 and BD140
 
 BD139 NPN:
@@ -128,7 +128,7 @@ each IRF540 gate -- 10k -- source/GND
 each IRF540 gate -- 15V zener -- source/GND   (recommended)
 ```
 
-This is deliberately fail-safe:
+Intended OFF behavior (not a guarantee of fault protection):
 
 - Pico reset or GPIO low -> PC123 LED off -> node X low -> BD140 on -> gate low.
 - Optocoupler removed or failed open -> 4.7k pulls node X low -> gate low.
@@ -258,58 +258,20 @@ the learned code will not work; the protocol decoder can be extended in
 
 ## Main screen
 
-Push-pull "stacked instrument" dashboard (128x64), rebuilt from scratch:
-three hard, non-overlapping bands, values right-aligned on one shared edge,
-zero telemetry:
+The 128×64 dashboard shows frequency in Hz and requested duty in percent in
+two bordered panels. The bottom row shows PWM ON or OFF and displays LIM when
+the requested pulse is limited. The displayed duty is the requested setting;
+when LIM is visible, the actual duty is lower.
 
-```
-+--------------------------------+
-| FREQ HZ                   LIM  |
-|                          6 0   |   24 px bold numerals
-|--------------------------------|
-| DUTY %                    2 5  |   14 px bold numerals
-|+------------------------------+|
-||##########···················|.|   PWM meter
-|+------------------------------+|
-+--------------------------------+
+Preview on a PC (requires Pillow and the Segoe UI Bold font on Windows):
+
+```powershell
+python tools/preview_dashboard.py 60 100 on lim
 ```
 
-- **Band 1 (y 0..30)** — `FREQ HZ` caption plus the frequency value in
-  **24 px bold numerals** from a real sans typeface, right-aligned on the
-  value grid at x=122. `LIM` appears at the far right of the caption row only
-  while a clamp is active.
-- **Band 2 (y 33..48)** — a 1 px rule, then `DUTY %` and the duty value in
-  **14 px bold numerals** on the same right edge.
-- **Band 3 (y 50..63)** — the **full-width PWM meter**. It encodes the state
-  without a single character:
-  - output ON: fills to the duty ratio of the period, quarter ticks, a crisp
-    leading edge, a travelling window (the only motion on the panel) and a
-    pilot block at the end of the track that stays visible even at 1 % duty;
-  - output OFF: empty trough with a dashed centre line.
-- Numerals are rasterised from Segoe UI Bold by `tools/gen_digits.py` and
-  stored as per-pixel coverage (`src/digit_data.c`), then ordered-dithered on
-  their edges at draw time — the closest thing to anti-aliased typography a
-  1-bit OLED can show. Captions keep the 5x7 face.
-- No voltage, temperature, battery or other telemetry is drawn anywhere.
-- `FRQ+` / `FRQ-`: 1 Hz steps, 1 to 60 Hz.
-- `DUTY+` / `DUTY-`: 1 % steps, 1 to 100 %; saturates at ~49 % of the period
-  (`LIM`); the scope per channel matches the OLED percentage.
-- `PWM ON` / `PWM OFF`: immediate start/stop.
-- `PWM OFF` held for 3 s: enter IR setup. `RESET ALL`: full factory
-  re-learn wizard from `1/7`.
-
-Preview the frame on a PC without hardware:
-
-```
-python tools/gen_digits.py            # regenerate src/digit_data.c
-python tools/preview_dashboard.py 60 25 on    # -> build/dashboard_*.png
-```
-
-
-Settings are saved when the output is OFF. If you change frequency or duty
-while the output is ON, the new value is held in RAM and written to flash when
-you turn the output OFF. This avoids interrupting the output during a flash
-write.
+Changing frequency or duty turns the output OFF. Press PWM ON to restart
+with the new setting. This prevents repeated automatic restarts while holding
+an adjustment button. Settings are saved only while the output is OFF.
 
 ## Safety
 
@@ -320,8 +282,7 @@ high currents.
 - Use a current-limited 12 V supply and a dummy load for initial power tests.
 - Fit a fuse and a physical kill switch.
 - Do not work on the mains output while powered.
-- Do not use an earth-referenced oscilloscope on the mains output. Use a
-  differential probe or an isolation transformer.
+- Do not use an earth-referenced oscilloscope on the mains output. Use a suitably rated differential probe; never lift the oscilloscope protective earth.
 - The firmware has no current-sense or over-temperature shutdown. Add a fuse,
   and consider adding a current sensor and heatsink thermostat for a permanent
   high-power installation.
@@ -333,8 +294,9 @@ high currents.
 | File | Purpose |
 |---|---|
 | `src/main.c` | Init and main loop |
-| `src/waveform.c` | Timer alarm waveform, dead time, soft start (`-DPWM_TIMER_DEADTIME=1`) |
-| `src/waveform_hw.c` | Default: one hardware PWM slice, exact complementary 50 % |
+| `src/waveform_pio.c` | Default PIO waveform with adjustable duty and dead time |
+| `src/waveform.c` | Timer waveform for optional soft start and bench testing |
+| `src/waveform_hw.c` | Bench-only hardware PWM, exact complementary 50 % |
 | `src/ir_nec.c` | NEC IR edge decoder |
 | `src/display.c` | SH1106/SSD1306 I2C driver |
 | `src/font.c` | Generated 5x7 font |
@@ -359,7 +321,7 @@ high currents.
 - If the remote is not NEC, add its protocol to `src/ir_nec.c`.
 
 **No gate output**
-- Confirm the main screen shows `PWM ON`.
+- Confirm the main screen shows an active PWM meter.
 - Check the PC123 LED current (about 9.5 mA with 220 ohm at 3.3 V).
 - Check the isolated 12 V gate-drive rail.
 - Check the BD139/BD140 orientation and the common-base node voltage.
@@ -371,3 +333,27 @@ high currents.
   at the same time.
 - Check the snubber/TVS and transformer leakage spike.
 - Verify current sharing and heatsinking.
+
+## Timing verification
+
+The default waveform uses a PIO state machine at 1 MHz. Its steady-state
+edges do not depend on CPU interrupt latency. Both channels share one program
+and use equal ON times and equal OFF gaps. Changing settings stops the output,
+keeps both pins low for at least 200 us, and requires PWM ON to start a new sequence. OFF immediately stops the state machine.
+
+Build first, then run `python tools/verify_pio_host.py` with a host GCC compiler
+on PATH (or set HOST_CC). This executes the production C timing calculation
+and checks the assembled PIO instruction sequence over all 6,000 settings.
+The older `verify_timing_host.py` models the legacy timer/bench generators.
+
+Software checks cannot establish electrical rise/fall time, corner shape,
+MOSFET losses, transformer power capability or efficiency. Those require
+measurements. The 200 us dead-time and 10 ms pulse limits remain enforced.
+
+## Startup timing preset
+
+This release applies 50 Hz / 33% requested duty once to existing saved settings,
+preserving learned remote keys. Later boots retain user adjustments. New units
+also default to 50 Hz / 33%. Output always starts OFF. The preset produces
+6.600 ms A ON, 3.400 ms both OFF, 6.600 ms B ON, 3.400 ms both OFF.
+This is an initial test setting, not a certified 800 W operating point.
